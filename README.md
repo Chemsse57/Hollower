@@ -126,6 +126,22 @@ local-hollowing/
 
 ---
 
+## Roadmap
+
+Actuellement seule l'évasion **statique** est implémentée. Reste à couvrir la détection **dynamique** (EDR/AV runtime) :
+
+- [ ] **ETW Patching** — patcher `EtwEventWrite` pour couper la télémétrie kernel
+- [ ] **AMSI Bypass** — patcher `AmsiScanBuffer` avant exécution du payload
+- [ ] **Unhooking ntdll** — remapper une copie clean de ntdll depuis le disque pour virer les hooks EDR
+- [ ] **Indirect Syscalls** — appels syscall directs pour bypass les hooks userland
+- [ ] **Sleep Obfuscation** — chiffrer le PE en mémoire pendant les phases de sleep (Ekko/Foliage)
+- [ ] **Module Stomping** — charger une DLL légitime et écraser son contenu au lieu de VirtualAlloc
+- [ ] **Stack Spoofing** — falsifier la call stack pour paraître légitime aux scans de threads
+- [ ] **Détection sandbox** — timing checks, vérification VM/debugger avant exécution
+- [ ] **PPID Spoofing** — usurper le parent process ID pour paraître lancé par explorer.exe
+
+---
+
 ## Limitations
 
 - Payloads **.NET** non supportés (nécessite CLR hosting)
