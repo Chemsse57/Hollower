@@ -29,6 +29,13 @@
       "params": ["LPVOID", "SIZE_T", "DWORD", "PDWORD"]
     },
     {
+      "name": "VirtualFree",
+      "dll": "kernel32.dll",
+      "return_type": "BOOL",
+      "calling_convention": "WINAPI",
+      "params": ["LPVOID", "SIZE_T", "DWORD"]
+    },
+    {
       "name": "CreateThread",
       "dll": "kernel32.dll",
       "return_type": "HANDLE",
