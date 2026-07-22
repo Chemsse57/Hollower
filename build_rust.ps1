@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 $src = "$PSScriptRoot\rust_loader\src\main.rs"
 $outDir = "$PSScriptRoot\build"
-$out = "$outDir\mtool.exe"
+$out = "$outDir\mtool_rust.exe"
 
 if (!(Test-Path $outDir)) { New-Item -ItemType Directory $outDir | Out-Null }
 

